@@ -1,0 +1,8 @@
+{
+    "clangd.arguments": [
+        "--background-index",
+        "--compile-commands-dir=C:/Users/vrmi/.gemini/antigravity-ide/scratch/esp32-cruise-control",
+        "--query-driver=C:/Users/vrmi/.platformio/packages/toolchain-xtensa-esp32/bin/xtensa-esp32-elf-*,C:/Users/vrmi/.platformio/packages/toolchain-riscv32-esp/bin/riscv32-esp-elf-*"
+    ],
+    "clangd.path": "clangd"
+}

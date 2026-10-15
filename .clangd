@@ -1,0 +1,28 @@
+CompileFlags:
+  # Remove Xtensa/GCC-specific flags that Clang doesn't understand and causes parsing failure
+  Remove:
+    - -mlongcalls
+    - -mtext-section-literals
+    - -fno-tree-switch-conversion
+    - -fstrict-volatile-bitfields
+    - -free
+    - -fipa-pta
+    - -Wno-frame-address
+    - -fno-jump-tables
+    - -mmul-const
+    
+  # Add flags to help clangd parse embedded ESP32 C++ properly
+  Add:
+    - -xc++
+    - -DESP32
+    - -DARDUINO_ARCH_ESP32
+    - -DCORE_DEBUG_LEVEL=3
+    - -DCONFIG_TWAI_ISR_IN_IRAM=1
+    - -IC:/Users/vrmi/.gemini/antigravity-ide/scratch/esp32-cruise-control/include
+    - -IC:/Users/vrmi/.gemini/antigravity-ide/scratch/esp32-cruise-control/src
+
+If:
+  # Force .h files to be treated as C++ headers
+  PathMatch: [.*\.h]
+  CompileFlags:
+    Add: [-xc++-header]

@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "author": "Antigravity",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn_set",
+      "top": 120,
+      "left": -120,
+      "attrs": { "color": "green", "label": "SET/DECEL" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn_res",
+      "top": 180,
+      "left": -120,
+      "attrs": { "color": "blue", "label": "RES/ACCEL" }
+    },
+    {
+      "type": "wokwi-slide-switch",
+      "id": "sw_main",
+      "top": 60,
+      "left": -120,
+      "attrs": { "label": "CRUISE MAIN" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn_brake",
+      "top": 240,
+      "left": -120,
+      "attrs": { "color": "red", "label": "BRAKE" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_active",
+      "top": -80,
+      "left": 40,
+      "attrs": { "color": "green", "label": "CRUISE ACTIVE" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_main",
+      "top": -80,
+      "left": -40,
+      "attrs": { "color": "amber", "label": "CRUISE MAIN" }
+    }
+  ],
+  "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+    [ "esp:GND.1", "btn_set:1.l", "black", [ "h0" ] ],
+    [ "esp:32", "btn_set:2.l", "green", [ "h0" ] ],
+    [ "esp:GND.1", "btn_res:1.l", "black", [ "h0" ] ],
+    [ "esp:33", "btn_res:2.l", "blue", [ "h0" ] ],
+    [ "esp:GND.1", "sw_main:1", "black", [ "h0" ] ],
+    [ "esp:14", "sw_main:2", "orange", [ "h0" ] ],
+    [ "esp:GND.1", "btn_brake:1.l", "black", [ "h0" ] ],
+    [ "esp:19", "btn_brake:2.l", "red", [ "h0" ] ],
+    [ "esp:26", "led_active:A", "green", [ "h0" ] ],
+    [ "esp:GND.1", "led_active:C", "black", [ "h0" ] ],
+    [ "esp:27", "led_main:A", "orange", [ "h0" ] ],
+    [ "esp:GND.1", "led_main:C", "black", [ "h0" ] ]
+  ],
+  "dependencies": {}
+}
