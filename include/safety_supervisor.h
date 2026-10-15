@@ -43,6 +43,7 @@ public:
     void toggleSimulatedOverride();
 
     float readPhysicalPedalThrottle();
+    float getRawPedalVolts() const { return _lastPedalVolts; }
 
 private:
     bool _relayState;
@@ -50,4 +51,6 @@ private:
     uint32_t _simBrakeUntilMs;
     bool _simOverrideActive;
     bool _canBrakePressed;
+    float _restingPedalVolts;
+    float _lastPedalVolts;
 };

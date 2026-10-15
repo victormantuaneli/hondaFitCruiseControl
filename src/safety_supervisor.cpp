@@ -18,6 +18,18 @@ void SafetySupervisor::begin() {
     // Physical pedal analog input
     pinMode(PIN_PEDAL_RAW_APP1_ADC, INPUT);
 
+    // Auto-calibrate resting pedal baseline on startup
+    uint32_t sum = 0;
+    for (int i = 0; i < 16; i++) {
+        sum += analogRead(PIN_PEDAL_RAW_APP1_ADC);
+        delay(2);
+    }
+    float rawAvg = sum / 16.0f;
+    _restingPedalVolts = (rawAvg / 4095.0f) * 3.3f;
+    if (_restingPedalVolts < 0.05f) _restingPedalVolts = 0.22f; // Fallback
+    _lastPedalVolts = _restingPedalVolts;
+    Serial.printf("[PEDAL] Calibrado repouso: %.2fV\n", _restingPedalVolts);
+
     // Relay control pin (must start LOW / de-energized)
     pinMode(PIN_RELAY_EN, OUTPUT);
     digitalWrite(PIN_RELAY_EN, LOW);
@@ -58,26 +70,33 @@ bool SafetySupervisor::isClutchDepressed() const {
 }
 
 float SafetySupervisor::readPhysicalPedalThrottle() {
-    // Read raw ADC on physical pedal before relay (0..4095)
     uint16_t raw = analogRead(PIN_PEDAL_RAW_APP1_ADC);
     float volts = (raw / 4095.0f) * 3.3f; // ESP32 3.3V reference
-    
-#if PEDAL_ADC_READS_APP2
-    // Pin reads APP2 (0.42V-2.25V). Idle margin at 0.50V ensures resting pedal is 0.0%
-    float throttle = (volts - PEDAL_APP2_IDLE_VOLTS) / (PEDAL_APP2_WOT_VOLTS - PEDAL_APP2_IDLE_VOLTS);
-#else
-    // Pin reads APP1 with 2:1 divider (0.45V Idle to 2.25V WOT at ADC pin)
-    float throttle = (volts - PEDAL_APP1_IDLE_VOLTS_DIV) / (PEDAL_APP1_WOT_VOLTS_DIV - PEDAL_APP1_IDLE_VOLTS_DIV);
-#endif
+    _lastPedalVolts = volts;
 
+    // Adapt baseline if pedal voltage drops lower while released (slow downward drift tracking)
+    if (volts > 0.05f && volts < _restingPedalVolts) {
+        _restingPedalVolts = 0.90f * _restingPedalVolts + 0.10f * volts;
+    }
+
+    // 25mV noise margin above rest ensures clean 0.0% without dead zone
+    float idleV = _restingPedalVolts + 0.025f;
+
+    // Detect span automatically based on resting voltage (with or without 2:1 divider)
+    float wotSpan = 1.80f; // Standard span (~0.45V to 2.25V)
+    if (_restingPedalVolts < 0.35f) {
+        wotSpan = 0.90f; // Scaled span for APP2 through 2:1 divider (~0.21V to 1.12V)
+    }
+
+    float throttle = (volts - idleV) / wotSpan;
     return constrain(throttle, 0.0f, 1.0f);
 }
 
 bool SafetySupervisor::isDriverOverriding(float cruiseCurrentThrottle) {
     if (_simOverrideActive) return true;
     float driverPedal = readPhysicalPedalThrottle();
-    // Driver presses pedal past resting threshold (3% deadband)
-    return (driverPedal > 0.03f);
+    // Driver presses pedal past resting threshold (2.5% deadband)
+    return (driverPedal > 0.025f);
 }
 
 void SafetySupervisor::triggerSimulatedBrake(uint32_t durationMs) {

@@ -209,12 +209,13 @@ void loop() {
         lastTelemetry = now;
 
         Serial.printf(
-            "\r\033[KState: %-7s | Spd: %4.1f/%-4.1f km/h | Thr:%4.1f%% | Ped:%4.1f%% | APP: %.2f/%.2fV | DAC:%-2s | CAN:%-3s | Brk:%-3s | Lamp:%-3s",
+            "\r\033[KState: %-7s | Spd: %4.1f/%-4.1f km/h | Thr:%4.1f%% | Ped:%4.1f%%(%.2fV) | APP: %.2f/%.2fV | DAC:%-2s | CAN:%-3s | Brk:%-3s | Lamp:%-3s",
             cruiseController.getStateString(),
             canReader.getSpeedKmh(),
             cruiseController.getTargetSpeed(),
             cruiseController.getCurrentThrottle() * 100.0f,
             safetySupervisor.readPhysicalPedalThrottle() * 100.0f,
+            safetySupervisor.getRawPedalVolts(),
             dacOutput.getVoutA(),
             dacOutput.getVoutB(),
             dacOutput.isDeviceFound() ? "OK" : "ERR",
