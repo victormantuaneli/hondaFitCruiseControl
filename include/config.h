@@ -66,7 +66,7 @@
 // ==============================================================================
 #define CAN_BAUDRATE_KBPS           500   // Honda F-CAN default is 500 kbps
 #define CAN_HONDA_SPEED_ID          0x158 // Common Honda CAN broadcast frame for Vehicle Speed & RPM
-#define CAN_SPEED_TIMEOUT_MS        500   // Disengage if no valid speed received in 500ms (avoids transient drops)
+#define CAN_SPEED_TIMEOUT_MS        1000  // Disengage if no valid speed received in 1000ms (prevents transient drops)
 #define CAN_LAMP_INJECTION_ENABLED  true  // Enable 0x17C cluster light injection (set to false if testing listen-only)
 #define CAN_LAMP_BURST_PERIOD_MS    1000  // Período total do ciclo (1000ms = 1 segundo)
 #define CAN_LAMP_BURST_ON_MS        250   // Duração da rajada contínua (250ms acesa, 750ms apagada)
@@ -79,7 +79,7 @@
 // ==============================================================================
 // 4. SPEED & SAFETY THRESHOLDS
 // ==============================================================================
-#define SPEED_MIN_ENGAGE_KMH        35.0f // Minimum speed allowed to engage cruise (35 km/h)
+#define SPEED_MIN_ENGAGE_KMH        25.0f // Minimum speed allowed to engage cruise (25 km/h)
 #define SPEED_MAX_ENGAGE_KMH        140.0f// Maximum speed allowed to engage cruise (140 km/h)
 #define SPEED_TAP_STEP_KMH          1.0f  // Speed change per short tap on SET- or RES+
 #define SPEED_RAMP_RATE_KMH_S       2.0f  // Acceleration rate when holding RES+ (km/h per second)

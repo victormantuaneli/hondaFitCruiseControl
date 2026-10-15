@@ -90,20 +90,10 @@ SwitchStateEvent SteeringSwitchDecoder::update() {
         }
     }
 
-    // 2. Sample 3-wire combination buttons
+    // 2. Sample 3-wire / CAN combination buttons
     SteeringButton sampled = sampleDiscreteButtons();
 
-    // Instant safety priority on CANCEL (don't wait for debounce)
-    if (sampled == SteeringButton::CANCEL && _debouncedButton != SteeringButton::CANCEL) {
-        _debouncedButton = SteeringButton::CANCEL;
-        _pressStartTime = now;
-        result.button = SteeringButton::CANCEL;
-        result.event = ButtonEvent::SHORT_PRESS;
-        result.durationMs = 0;
-        return result;
-    }
-
-    // Debounce state tracking for SET and RES
+    // Debounce state tracking for all buttons (including CANCEL to prevent single-packet glitches)
     if (sampled != _currentRawButton) {
         _currentRawButton = sampled;
         _lastRawSampleTime = now;
@@ -113,6 +103,14 @@ SwitchStateEvent SteeringSwitchDecoder::update() {
             if (_debouncedButton == SteeringButton::NONE && _currentRawButton != SteeringButton::NONE) {
                 _pressStartTime = now;
                 _isLongPressReported = false;
+
+                if (_currentRawButton == SteeringButton::CANCEL) {
+                    _debouncedButton = SteeringButton::CANCEL;
+                    result.button = SteeringButton::CANCEL;
+                    result.event = ButtonEvent::SHORT_PRESS;
+                    result.durationMs = 0;
+                    return result;
+                }
             }
             // Button released
             else if (_debouncedButton != SteeringButton::NONE && _currentRawButton == SteeringButton::NONE) {
