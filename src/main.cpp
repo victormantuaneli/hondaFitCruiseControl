@@ -177,6 +177,14 @@ void handleSerialDebugCommand(char c) {
         case 'U':
             canboxEmulator.toggleDebug();
             break;
+        case 'p':
+        case 'P':
+            canboxEmulator.toggleSimulatedDoor();
+            break;
+        case 'y':
+        case 'Y':
+            canboxEmulator.toggleBaudrate();
+            break;
         case 'x':
         case 'X':
             canReader.toggleSnifferOutput();
@@ -187,6 +195,8 @@ void handleSerialDebugCommand(char c) {
             Serial.println(F("  d : Ver histórico dos últimos 10 desarmes (NVS)"));
             Serial.println(F("  k : Limpar histórico de desarmes da NVS"));
             Serial.println(F("  u : Alternar Monitor CANBox Serial2 (TX2/RX2 pacotes p/ central)"));
+            Serial.println(F("  p : Simular Porta do Motorista (ABERTA/FECHADA) - teste imediato"));
+            Serial.println(F("  y : Alternar Baudrate Serial2 (38400 / 115200 / 19200 bps)"));
             Serial.println(F("  x : Alternar Sniffer CAN do carro (OFF -> FILTRADO -> TODOS RAW)"));
             Serial.println(F("  m : Alternar chave Cruise Main"));
             Serial.println(F("  s : Pressionar SET/DECEL"));

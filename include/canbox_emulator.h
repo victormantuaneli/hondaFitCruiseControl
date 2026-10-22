@@ -26,9 +26,16 @@ public:
     void toggleDebug();
     bool isDebugEnabled() const { return _debugEnabled; }
 
+    // Test tools
+    void toggleSimulatedDoor();
+    void toggleBaudrate();
+    uint32_t getBaudrate() const { return _currentBaudrate; }
+
 private:
     bool _initialized;
     bool _debugEnabled;
+    uint32_t _currentBaudrate;
+    bool _simDoorActive;
 
     // Body & Safety state (decoded from Honda CAN)
     bool _doorDriver;
@@ -64,8 +71,10 @@ private:
     uint32_t _lastDoorsSendMs;
     uint32_t _lastStatusSendMs;
     uint32_t _lastCruiseSendMs;
+    uint32_t _lastVersionSendMs;
 
     void sendRaisePacket(uint8_t cmd, const uint8_t* payload, uint8_t length);
+    void sendVersion();
     void sendDoorsAndSeatbelt();
     void sendVehicleStatus();
     void sendSpeedAndRpm();

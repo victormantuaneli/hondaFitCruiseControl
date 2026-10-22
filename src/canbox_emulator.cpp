@@ -3,6 +3,8 @@
 CanboxEmulator::CanboxEmulator()
     : _initialized(false),
       _debugEnabled(false),
+      _currentBaudrate(CANBOX_UART_BAUDRATE),
+      _simDoorActive(false),
       _doorDriver(false),
       _doorPassenger(false),
       _doorRearLeft(false),
@@ -29,7 +31,8 @@ CanboxEmulator::CanboxEmulator()
       _lastSpeedSendMs(0),
       _lastDoorsSendMs(0),
       _lastStatusSendMs(0),
-      _lastCruiseSendMs(0) {}
+      _lastCruiseSendMs(0),
+      _lastVersionSendMs(0) {}
 
 void CanboxEmulator::toggleDebug() {
     _debugEnabled = !_debugEnabled;
@@ -37,19 +40,46 @@ void CanboxEmulator::toggleDebug() {
                   _debugEnabled ? "ATIVADO (Exibindo pacotes enviados e recebidos)" : "DESATIVADO");
 }
 
+void CanboxEmulator::toggleSimulatedDoor() {
+    _simDoorActive = !_simDoorActive;
+    _doorDriver = _simDoorActive;
+    Serial.printf("\n>>> [CANBOX TEST] Porta do Motorista Simulada: %s <<<\n", 
+                  _simDoorActive ? "ABERTA (Enviando CMD 0x41 e 0x24)" : "FECHADA (Enviando CMD 0x41 e 0x24)");
+    sendDoorsAndSeatbelt();
+}
+
+void CanboxEmulator::toggleBaudrate() {
+    if (_currentBaudrate == 38400) {
+        _currentBaudrate = 115200;
+    } else if (_currentBaudrate == 115200) {
+        _currentBaudrate = 19200;
+    } else {
+        _currentBaudrate = 38400;
+    }
+    Serial2.updateBaudRate(_currentBaudrate);
+    Serial.printf("\n>>> [CANBOX] Baudrate da Serial2 alterado para: %u bps <<<\n", _currentBaudrate);
+}
+
+void CanboxEmulator::sendVersion() {
+    const char* ver = "RZC-HONDA-V1.0";
+    sendRaisePacket(0x30, (const uint8_t*)ver, strlen(ver));
+}
+
 void CanboxEmulator::begin() {
 #if CANBOX_EMULATOR_ENABLED
     // Initialize Hardware UART2 on ESP32 (38400 baud, 8N1, RX: GPIO 16, TX: GPIO 17)
-    Serial2.begin(CANBOX_UART_BAUDRATE, SERIAL_8N1, PIN_CANBOX_RX, PIN_CANBOX_TX);
+    Serial2.begin(_currentBaudrate, SERIAL_8N1, PIN_CANBOX_RX, PIN_CANBOX_TX);
     _initialized = true;
     Serial.printf("[CANBOX] Emulador Raise RZC Honda ativo na Serial2 (TX: GPIO %d, RX: GPIO %d, %d bps)\n",
-                  PIN_CANBOX_TX, PIN_CANBOX_RX, CANBOX_UART_BAUDRATE);
+                  PIN_CANBOX_TX, PIN_CANBOX_RX, _currentBaudrate);
 
     // Initial broadcast to announce presence to the head unit
+    sendVersion();
     sendDoorsAndSeatbelt();
     sendVehicleStatus();
     sendSpeedAndRpm();
     sendCruiseStatus();
+    _lastVersionSendMs = millis();
 #endif
 }
 
@@ -211,6 +241,15 @@ void CanboxEmulator::parseHondaFrame(uint32_t identifier, const uint8_t* data, u
 
     // Honda 0x294: Body, Cluster Warnings, Seatbelt, Handbrake, Doors, Turn Signals
     if (identifier == 0x294 && length >= 6) {
+        if (_debugEnabled) {
+            static uint8_t lastD[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+            if (memcmp(lastD, data, 6) != 0) {
+                memcpy(lastD, data, 6);
+                Serial.printf("[CAN 0x294 RAW] D[0..5]: %02X %02X %02X %02X %02X %02X\n",
+                              data[0], data[1], data[2], data[3], data[4], data[5]);
+            }
+        }
+
         // Byte 2: Seatbelt and Handbrake
         // Bit 6 (0x40): Seatbelt unbuckled warning
         // Bit 0 (0x01): Parking / Handbrake lever pulled
@@ -233,13 +272,16 @@ void CanboxEmulator::parseHondaFrame(uint32_t identifier, const uint8_t* data, u
         bool newDoorRR = (data[5] & 0x10) != 0;
 
         // Immediate push on any door or safety transition
-        bool doorChanged = (newDoorDriver != _doorDriver) || (newDoorPass != _doorPassenger) ||
+        bool doorChanged = (!_simDoorActive && (newDoorDriver != _doorDriver)) ||
+                           (newDoorPass != _doorPassenger) ||
                            (newDoorRL != _doorRearLeft) || (newDoorRR != _doorRearRight) ||
                            (newTrunk != _trunk) || (newSeatbelt != _seatbeltWarning);
 
         bool statusChanged = (newHandbrake != _handbrake) || (newHeadlights != _headlights);
 
-        _doorDriver = newDoorDriver;
+        if (!_simDoorActive) {
+            _doorDriver = newDoorDriver;
+        }
         _doorPassenger = newDoorPass;
         _trunk = newTrunk;
         _doorRearLeft = newDoorRL;
@@ -279,6 +321,12 @@ void CanboxEmulator::update(float speedKmh, float rpm, bool brakePressed,
     _targetSpeedKmh = targetSpeedKmh;
 
     uint32_t now = millis();
+
+    // 0. Periodic Version announcement: every 5000ms
+    if (now - _lastVersionSendMs >= 5000) {
+        sendVersion();
+        _lastVersionSendMs = now;
+    }
 
     // 1. Speed & RPM broadcast: 10 Hz (every 100ms) for smooth dashboard needle
     if (now - _lastSpeedSendMs >= 100) {
