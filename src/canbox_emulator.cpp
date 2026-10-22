@@ -77,9 +77,10 @@ void CanboxEmulator::sendRaisePacket(uint8_t cmd, const uint8_t* payload, uint8_
 
     if (_debugEnabled) {
         const char* cmdName = "INFO";
-        if (cmd == 0x24) cmdName = "PORTAS/CINTO";
+        if (cmd == 0x24 || cmd == 0x41) cmdName = "PORTAS/STATUS";
         else if (cmd == 0x25) cmdName = "STATUS/LUZES";
         else if (cmd == 0x16) cmdName = "VEL/RPM";
+        else if (cmd == 0x30) cmdName = "VERSAO";
         else if (cmd == 0x32) cmdName = "CRUISE";
 
         Serial.printf("[CANBOX TX] CMD 0x%02X (%s) ->", cmd, cmdName);
@@ -92,19 +93,34 @@ void CanboxEmulator::sendRaisePacket(uint8_t cmd, const uint8_t* payload, uint8_
 }
 
 void CanboxEmulator::sendDoorsAndSeatbelt() {
-    // Command 0x24: Doors, Trunk, Hood & Seatbelt
+    // 1. Raise Universal Car Status (CMD 0x41, Subcommand 0x01)
+    // Used by Topway / Unisoc / Lelong head units for Door and Seatbelt pop-ups
+    uint8_t raiseDoor = 0;
+    if (_doorDriver)       raiseDoor |= 0x01; // Bit 0: Front-Left (Driver) open
+    if (_doorPassenger)    raiseDoor |= 0x02; // Bit 1: Front-Right (Passenger) open
+    if (_doorRearLeft)     raiseDoor |= 0x04; // Bit 2: Rear-Left open
+    if (_doorRearRight)    raiseDoor |= 0x08; // Bit 3: Rear-Right open
+    if (_trunk)            raiseDoor |= 0x10; // Bit 4: Trunk open
+    if (_handbrake)        raiseDoor |= 0x20; // Bit 5: Handbrake active
+    if (_seatbeltWarning)  raiseDoor |= 0x80; // Bit 7: Seatbelt warning (unbuckled)
+
+    uint8_t payload41[2] = { 0x01, raiseDoor };
+    sendRaisePacket(0x41, payload41, 2);
+
+    // 2. Honda Specific Format (CMD 0x24, 2 bytes)
     uint8_t doorByte = 0;
-    if (_doorDriver)       doorByte |= 0x80; // Bit 7: Driver door open
-    if (_doorPassenger)    doorByte |= 0x40; // Bit 6: Passenger door open
-    if (_doorRearLeft)     doorByte |= 0x20; // Bit 5: Rear-Left door open
-    if (_doorRearRight)    doorByte |= 0x10; // Bit 4: Rear-Right door open
-    if (_trunk)            doorByte |= 0x08; // Bit 3: Trunk open
-    if (_hood)             doorByte |= 0x04; // Bit 2: Hood open
+    if (_doorDriver)       doorByte |= 0x80; // Bit 7: Driver door
+    if (_doorPassenger)    doorByte |= 0x40; // Bit 6: Passenger door
+    if (_doorRearLeft)     doorByte |= 0x20; // Bit 5: Rear-Left
+    if (_doorRearRight)    doorByte |= 0x10; // Bit 4: Rear-Right
+    if (_trunk)            doorByte |= 0x08; // Bit 3: Trunk
+    if (_hood)             doorByte |= 0x04; // Bit 2: Hood
     if (_seatbeltWarning)  doorByte |= 0x02; // Bit 1: Driver seatbelt unbuckled
 
-    uint8_t payload[1] = { doorByte };
-    sendRaisePacket(0x24, payload, 1);
-    _lastDoorByte = doorByte;
+    uint8_t payload24[2] = { doorByte, (uint8_t)(_seatbeltWarning ? 0x80 : 0x00) };
+    sendRaisePacket(0x24, payload24, 2);
+
+    _lastDoorByte = raiseDoor;
     _lastDoorsSendMs = millis();
 }
 
@@ -129,22 +145,46 @@ void CanboxEmulator::sendVehicleStatus() {
 }
 
 void CanboxEmulator::sendSpeedAndRpm() {
-    // Command 0x16: Speed and RPM telemetry for Head Unit Dashboard
+    // 1. Raise Universal Car Telemetry (CMD 0x41, Subcommand 0x02 - 13 bytes)
+    uint16_t rawRpm = (uint16_t)(_currentRpm >= 0.0f ? _currentRpm : 0.0f);
+    uint16_t carSpeedX100 = (uint16_t)((_currentSpeedKmh >= 0.0f ? _currentSpeedKmh : 0.0f) * 100.0f);
+    uint16_t voltageX100 = 1420; // 14.20V battery
+    uint16_t tempX10 = 250;      // 25.0 C
+
+    uint8_t payloadCar[13] = {
+        0x02,
+        (uint8_t)((rawRpm >> 8) & 0xFF),
+        (uint8_t)(rawRpm & 0xFF),
+        (uint8_t)((carSpeedX100 >> 8) & 0xFF),
+        (uint8_t)(carSpeedX100 & 0xFF),
+        (uint8_t)((voltageX100 >> 8) & 0xFF),
+        (uint8_t)(voltageX100 & 0xFF),
+        (uint8_t)((tempX10 >> 8) & 0xFF),
+        (uint8_t)(tempX10 & 0xFF),
+        0x00, 0x00, 0x00, // mileage
+        0x50              // fuel %
+    };
+    sendRaisePacket(0x41, payloadCar, 13);
+
+    // 2. Legacy Command 0x16 format (Speed and RPM)
     uint16_t spd = (uint16_t)(_currentSpeedKmh >= 0.0f ? _currentSpeedKmh : 0.0f);
-    uint16_t rpm = (uint16_t)(_currentRpm >= 0.0f ? _currentRpm : 0.0f);
+    uint8_t payload16[4] = {
+        (uint8_t)(spd & 0xFF),
+        (uint8_t)((spd >> 8) & 0xFF),
+        (uint8_t)((rawRpm >> 8) & 0xFF),
+        (uint8_t)(rawRpm & 0xFF)
+    };
+    sendRaisePacket(0x16, payload16, 4);
 
-    uint8_t payload[4];
-    payload[0] = (uint8_t)(spd & 0xFF);         // Speed in km/h
-    payload[1] = (uint8_t)((spd >> 8) & 0xFF);  // High byte (if speed > 255)
-    payload[2] = (uint8_t)((rpm >> 8) & 0xFF);  // RPM high byte
-    payload[3] = (uint8_t)(rpm & 0xFF);         // RPM low byte
-
-    sendRaisePacket(0x16, payload, 4);
     _lastSpeedSendMs = millis();
 }
 
 void CanboxEmulator::sendCruiseStatus() {
-    // Command 0x32: Cruise Control & Vehicle Information Status
+    // 1. Send Version Code (CMD 0x30) to keep head unit connection active
+    const char* verStr = "RZC-HONDA-V1.0";
+    sendRaisePacket(0x30, (const uint8_t*)verStr, strlen(verStr));
+
+    // 2. Command 0x32: Cruise Control & Vehicle Information Status
     uint8_t cruiseStateCode = 0;
     if (_cruiseActive) {
         cruiseStateCode = 2; // ACTIVE
