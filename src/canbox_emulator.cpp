@@ -11,7 +11,7 @@ CanboxEmulator::CanboxEmulator()
       _doorRearRight(false),
       _trunk(false),
       _hood(false),
-      _seatbeltWarning(true),
+      _seatbeltWarning(false),
       _handbrake(false),
       _reverseGear(false),
       _headlights(false),
@@ -41,10 +41,46 @@ void CanboxEmulator::toggleDebug() {
 }
 
 void CanboxEmulator::toggleSimulatedDoor() {
-    _simDoorActive = !_simDoorActive;
-    _doorDriver = _simDoorActive;
-    Serial.printf("\n>>> [CANBOX TEST] Porta do Motorista Simulada: %s <<<\n", 
-                  _simDoorActive ? "ABERTA (Enviando CMD 0x41 e 0x24)" : "FECHADA (Enviando CMD 0x41 e 0x24)");
+    toggleSimDoor(1);
+}
+
+void CanboxEmulator::toggleSimDoor(uint8_t doorIndex) {
+    switch (doorIndex) {
+        case 1:
+            _simDoorActive = true;
+            _doorDriver = !_doorDriver;
+            Serial.printf("\n>>> [CANBOX TEST] Porta Motorista (FL): %s <<<\n", _doorDriver ? "ABERTA" : "FECHADA");
+            break;
+        case 2:
+            _simDoorActive = true;
+            _doorPassenger = !_doorPassenger;
+            Serial.printf("\n>>> [CANBOX TEST] Porta Passageiro (FR): %s <<<\n", _doorPassenger ? "ABERTA" : "FECHADA");
+            break;
+        case 3:
+            _simDoorActive = true;
+            _doorRearLeft = !_doorRearLeft;
+            Serial.printf("\n>>> [CANBOX TEST] Porta Traseira Esquerda (RL): %s <<<\n", _doorRearLeft ? "ABERTA" : "FECHADA");
+            break;
+        case 4:
+            _simDoorActive = true;
+            _doorRearRight = !_doorRearRight;
+            Serial.printf("\n>>> [CANBOX TEST] Porta Traseira Direita (RR): %s <<<\n", _doorRearRight ? "ABERTA" : "FECHADA");
+            break;
+        case 5:
+            _simDoorActive = true;
+            _trunk = !_trunk;
+            Serial.printf("\n>>> [CANBOX TEST] Porta-Malas: %s <<<\n", _trunk ? "ABERTO" : "FECHADO");
+            break;
+        case 0:
+            _doorDriver = false;
+            _doorPassenger = false;
+            _doorRearLeft = false;
+            _doorRearRight = false;
+            _trunk = false;
+            _simDoorActive = false;
+            Serial.println(F("\n>>> [CANBOX TEST] TODAS AS PORTAS FECHADAS (Reset) <<<"));
+            break;
+    }
     sendDoorsAndSeatbelt();
 }
 
@@ -124,20 +160,19 @@ void CanboxEmulator::sendRaisePacket(uint8_t cmd, const uint8_t* payload, uint8_
 
 void CanboxEmulator::sendDoorsAndSeatbelt() {
     // 1. Raise Universal Car Status (CMD 0x41, Subcommand 0x01)
-    // Used by Topway / Unisoc / Lelong head units for Door and Seatbelt pop-ups
+    // Used by Topway / Unisoc / Lelong head units for Door pop-ups
     uint8_t raiseDoor = 0;
     if (_doorDriver)       raiseDoor |= 0x01; // Bit 0: Front-Left (Driver) open
     if (_doorPassenger)    raiseDoor |= 0x02; // Bit 1: Front-Right (Passenger) open
     if (_doorRearLeft)     raiseDoor |= 0x04; // Bit 2: Rear-Left open
     if (_doorRearRight)    raiseDoor |= 0x08; // Bit 3: Rear-Right open
     if (_trunk)            raiseDoor |= 0x10; // Bit 4: Trunk open
-    if (_handbrake)        raiseDoor |= 0x20; // Bit 5: Handbrake active
-    if (_seatbeltWarning)  raiseDoor |= 0x80; // Bit 7: Seatbelt warning (unbuckled)
+    if (_hood)             raiseDoor |= 0x20; // Bit 5: Hood open
 
     uint8_t payload41[2] = { 0x01, raiseDoor };
     sendRaisePacket(0x41, payload41, 2);
 
-    // 2. Honda Specific Format (CMD 0x24, 2 bytes)
+    // 2. Honda Specific Format (CMD 0x24, 1 byte)
     uint8_t doorByte = 0;
     if (_doorDriver)       doorByte |= 0x80; // Bit 7: Driver door
     if (_doorPassenger)    doorByte |= 0x40; // Bit 6: Passenger door
@@ -145,10 +180,9 @@ void CanboxEmulator::sendDoorsAndSeatbelt() {
     if (_doorRearRight)    doorByte |= 0x10; // Bit 4: Rear-Right
     if (_trunk)            doorByte |= 0x08; // Bit 3: Trunk
     if (_hood)             doorByte |= 0x04; // Bit 2: Hood
-    if (_seatbeltWarning)  doorByte |= 0x02; // Bit 1: Driver seatbelt unbuckled
 
-    uint8_t payload24[2] = { doorByte, (uint8_t)(_seatbeltWarning ? 0x80 : 0x00) };
-    sendRaisePacket(0x24, payload24, 2);
+    uint8_t payload24[1] = { doorByte };
+    sendRaisePacket(0x24, payload24, 1);
 
     _lastDoorByte = raiseDoor;
     _lastDoorsSendMs = millis();

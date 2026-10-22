@@ -181,6 +181,14 @@ void handleSerialDebugCommand(char c) {
         case 'P':
             canboxEmulator.toggleSimulatedDoor();
             break;
+        case '0':
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+            canboxEmulator.toggleSimDoor(c - '0');
+            break;
         case 'y':
         case 'Y':
             canboxEmulator.toggleBaudrate();
@@ -195,7 +203,12 @@ void handleSerialDebugCommand(char c) {
             Serial.println(F("  d : Ver histórico dos últimos 10 desarmes (NVS)"));
             Serial.println(F("  k : Limpar histórico de desarmes da NVS"));
             Serial.println(F("  u : Alternar Monitor CANBox Serial2 (TX2/RX2 pacotes p/ central)"));
-            Serial.println(F("  p : Simular Porta do Motorista (ABERTA/FECHADA) - teste imediato"));
+            Serial.println(F("  1 : Alternar Porta Motorista (FL)"));
+            Serial.println(F("  2 : Alternar Porta Passageiro (FR)"));
+            Serial.println(F("  3 : Alternar Porta Traseira Esquerda (RL)"));
+            Serial.println(F("  4 : Alternar Porta Traseira Direita (RR)"));
+            Serial.println(F("  5 : Alternar Porta-Malas"));
+            Serial.println(F("  0 : Fechar TODAS as portas (Reset)"));
             Serial.println(F("  y : Alternar Baudrate Serial2 (38400 / 115200 / 19200 bps)"));
             Serial.println(F("  x : Alternar Sniffer CAN do carro (OFF -> FILTRADO -> TODOS RAW)"));
             Serial.println(F("  m : Alternar chave Cruise Main"));
@@ -232,21 +245,23 @@ void loop() {
     if (now - lastTelemetry >= 200) {
         lastTelemetry = now;
 
-        Serial.printf(
-            "\r\033[KState: %-7s | Spd: %4.1f/%-4.1f km/h | Thr:%4.1f%% | Ped:%4.1f%%(%.2fV) | APP: %.2f/%.2fV | DAC:%-2s | CAN:%-3s | Brk:%-3s | Lamp:%-3s",
-            cruiseController.getStateString(),
-            canReader.getSpeedKmh(),
-            cruiseController.getTargetSpeed(),
-            cruiseController.getCurrentThrottle() * 100.0f,
-            safetySupervisor.readPhysicalPedalThrottle() * 100.0f,
-            safetySupervisor.getRawPedalVolts(),
-            dacOutput.getVoutA(),
-            dacOutput.getVoutB(),
-            dacOutput.isDeviceFound() ? "OK" : "ERR",
-            canReader.isSpeedValid() ? "OK" : "ERR",
-            safetySupervisor.isBrakePressed() ? "ON" : "OFF",
-            canReader.isCruiseLampOn() ? "ON" : "OFF"
-        );
+        if (!canboxEmulator.isDebugEnabled()) {
+            Serial.printf(
+                "\r\033[KState: %-7s | Spd: %4.1f/%-4.1f km/h | Thr:%4.1f%% | Ped:%4.1f%%(%.2fV) | APP: %.2f/%.2fV | DAC:%-2s | CAN:%-3s | Brk:%-3s | Lamp:%-3s",
+                cruiseController.getStateString(),
+                canReader.getSpeedKmh(),
+                cruiseController.getTargetSpeed(),
+                cruiseController.getCurrentThrottle() * 100.0f,
+                safetySupervisor.readPhysicalPedalThrottle() * 100.0f,
+                safetySupervisor.getRawPedalVolts(),
+                dacOutput.getVoutA(),
+                dacOutput.getVoutB(),
+                dacOutput.isDeviceFound() ? "OK" : "ERR",
+                canReader.isSpeedValid() ? "OK" : "ERR",
+                safetySupervisor.isBrakePressed() ? "ON" : "OFF",
+                canReader.isCruiseLampOn() ? "ON" : "OFF"
+            );
+        }
     }
 
     delay(20);

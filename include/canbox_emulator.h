@@ -28,6 +28,7 @@ public:
 
     // Test tools
     void toggleSimulatedDoor();
+    void toggleSimDoor(uint8_t doorIndex);
     void toggleBaudrate();
     uint32_t getBaudrate() const { return _currentBaudrate; }
 
