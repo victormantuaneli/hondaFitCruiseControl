@@ -5,13 +5,15 @@
 #include "mcp4728_dac.h"
 #include "safety_supervisor.h"
 #include "cruise_controller.h"
+#include "disengage_log.h"
 
 // Hardware Singletons
 CanSpeedReader      canReader;
 SteeringSwitchDecoder switchDecoder;
 Mcp4728Dac          dacOutput;
 SafetySupervisor    safetySupervisor;
-CruiseController    cruiseController(switchDecoder, canReader, dacOutput, safetySupervisor);
+DisengageLog        disengageLog;
+CruiseController    cruiseController(switchDecoder, canReader, dacOutput, safetySupervisor, disengageLog);
 
 // FreeRTOS Task Handles
 TaskHandle_t hTaskCan = NULL;
@@ -66,7 +68,11 @@ void setup() {
         Serial.println(F("[OK] CAN set to bench/simulation mode (70 km/h virtual speed)."));
     }
 
-    // 5. Initialize Controller
+    // 5. Initialize Persistent Disengage Logger (NVS) & show previous session logs
+    disengageLog.begin();
+    disengageLog.printHistory();
+
+    // 6. Initialize Controller
     cruiseController.begin();
     Serial.println(F("[OK] Cruise controller initialized."));
 
@@ -170,9 +176,19 @@ void handleSerialDebugCommand(char c) {
                 }
             }
             break;
+        case 'd':
+        case 'D':
+            disengageLog.printHistory();
+            break;
+        case 'k':
+        case 'K':
+            disengageLog.clear();
+            break;
         case '?':
         case 'h':
             Serial.println(F("\n=== BENCH DEBUG COMMANDS ==="));
+            Serial.println(F("  d : Ver histórico dos últimos 10 desarmes (NVS)"));
+            Serial.println(F("  k : Limpar histórico de desarmes da NVS"));
             Serial.println(F("  m : Alternar chave Cruise Main"));
             Serial.println(F("  s : Pressionar SET/DECEL"));
             Serial.println(F("  r : Pressionar RES/ACCEL"));

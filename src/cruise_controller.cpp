@@ -4,11 +4,13 @@ CruiseController::CruiseController(
     SteeringSwitchDecoder &switches,
     CanSpeedReader &can,
     Mcp4728Dac &dac,
-    SafetySupervisor &safety
+    SafetySupervisor &safety,
+    DisengageLog &disengageLog
 ) : _switches(switches),
     _can(can),
     _dac(dac),
     _safety(safety),
+    _disengageLog(disengageLog),
     _state(CruiseState::OFF),
     _targetSpeedKmh(0.0f),
     _lastSpeedKmh(0.0f),
@@ -32,25 +34,15 @@ void CruiseController::resetPid() {
     _lastPidTime = millis();
 }
 
-static const char* getDisengageReasonString(DisengageReason reason) {
-    switch (reason) {
-        case DisengageReason::BRAKE_PRESSED:   return "PÉ NO FREIO (Brake Pedal)";
-        case DisengageReason::CLUTCH_PRESSED:  return "EMBREAGEM (Clutch)";
-        case DisengageReason::CANCEL_BUTTON:   return "BOTÃO CANCEL";
-        case DisengageReason::MAIN_SWITCH_OFF: return "CHAVE CRUISE MAIN DESLIGADA";
-        case DisengageReason::SPEED_TOO_LOW:   return "VELOCIDADE ABAIXO DO MÍNIMO";
-        case DisengageReason::SPEED_TOO_HIGH:  return "VELOCIDADE ACIMA DO MÁXIMO";
-        case DisengageReason::CAN_TIMEOUT:     return "CAN TIMEOUT (Sem sinal de velocidade)";
-        case DisengageReason::DRIVER_OVERRIDE: return "DRIVER OVERRIDE";
-        case DisengageReason::SENSOR_FAULT:    return "FALHA DE SENSOR";
-        default:                               return "OUTRO / DESCONHECIDO";
-    }
-}
-
 void CruiseController::disengage(DisengageReason reason) {
     if (_state == CruiseState::ACTIVE || _state == CruiseState::OVERRIDE) {
+        float pedalThr = _safety.readPhysicalPedalThrottle();
+        float pedalVolts = _safety.getRawPedalVolts();
+        _disengageLog.logDisengage(reason, _can.getSpeedKmh(), _targetSpeedKmh, 
+                                  pedalThr, pedalVolts, _currentThrottle);
+
         Serial.printf("\n\n>>> [CRUISE DESATIVOU] Motivo: %s (código %d) | Vel: %.1f km/h <<<\n\n", 
-                      getDisengageReasonString(reason), (int)reason, _can.getSpeedKmh());
+                      DisengageLog::getReasonString(reason), (int)reason, _can.getSpeedKmh());
     }
     _state = _switches.isCruiseMainActive() ? CruiseState::STANDBY : CruiseState::OFF;
     _safety.setRelayEngaged(false);

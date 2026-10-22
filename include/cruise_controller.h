@@ -6,6 +6,7 @@
 #include "can_speed.h"
 #include "mcp4728_dac.h"
 #include "safety_supervisor.h"
+#include "disengage_log.h"
 
 enum class CruiseState {
     OFF = 0,        // Cruise Main switch disabled
@@ -21,7 +22,8 @@ public:
         SteeringSwitchDecoder &switches,
         CanSpeedReader &can,
         Mcp4728Dac &dac,
-        SafetySupervisor &safety
+        SafetySupervisor &safety,
+        DisengageLog &disengageLog
     );
 
     void begin();
@@ -39,6 +41,7 @@ private:
     CanSpeedReader &_can;
     Mcp4728Dac &_dac;
     SafetySupervisor &_safety;
+    DisengageLog &_disengageLog;
 
     CruiseState _state;
     float _targetSpeedKmh;
