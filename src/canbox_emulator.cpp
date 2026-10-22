@@ -273,14 +273,14 @@ void CanboxEmulator::sendCruiseStatus() {
 void CanboxEmulator::parseHondaFrame(uint32_t identifier, const uint8_t* data, uint8_t length) {
     if (!data || length < 1) return;
 
-    // Honda 0x294: Body, Cluster Warnings, Seatbelt, Handbrake, Doors, Turn Signals
-    if (identifier == 0x294 && length >= 6) {
+    // Honda 0x294: Body, Cluster Warnings, Seatbelt, Handbrake, Turn Signals
+    if (identifier == 0x294 && length >= 3) {
         if (_debugEnabled) {
-            static uint8_t lastD[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-            if (memcmp(lastD, data, 6) != 0) {
-                memcpy(lastD, data, 6);
-                Serial.printf("[CAN 0x294 RAW] D[0..5]: %02X %02X %02X %02X %02X %02X\n",
-                              data[0], data[1], data[2], data[3], data[4], data[5]);
+            static uint8_t lastD[3] = {0xFF, 0xFF, 0xFF};
+            if (memcmp(lastD, data, 3) != 0) {
+                memcpy(lastD, data, 3);
+                Serial.printf("[CAN 0x294 RAW] D[0..2]: %02X %02X %02X\n",
+                              data[0], data[1], data[2]);
             }
         }
 
@@ -293,42 +293,46 @@ void CanboxEmulator::parseHondaFrame(uint32_t identifier, const uint8_t* data, u
         // Byte 1: Lights / Illumination
         bool newHeadlights = (data[1] & 0x04) != 0 || (data[1] & 0x10) != 0;
 
-        // Byte 5: Door switches (Honda Fit G2)
-        // Bit 0: Driver door
-        // Bit 1: Passenger door
-        // Bit 3: Rear-Left door
-        // Bit 4: Rear-Right door
-        // Bit 2: Trunk
-        bool newDoorDriver = (data[5] & 0x01) != 0;
-        bool newDoorPass = (data[5] & 0x02) != 0;
-        bool newTrunk = (data[5] & 0x04) != 0;
-        bool newDoorRL = (data[5] & 0x08) != 0;
-        bool newDoorRR = (data[5] & 0x10) != 0;
+        bool statusChanged = (newHandbrake != _handbrake) || (newHeadlights != _headlights) ||
+                             (newSeatbelt != _seatbeltWarning);
 
-        // Immediate push on any door or safety transition
-        bool doorChanged = (!_simDoorActive && (newDoorDriver != _doorDriver)) ||
-                           (newDoorPass != _doorPassenger) ||
-                           (newDoorRL != _doorRearLeft) || (newDoorRR != _doorRearRight) ||
-                           (newTrunk != _trunk) || (newSeatbelt != _seatbeltWarning);
-
-        bool statusChanged = (newHandbrake != _handbrake) || (newHeadlights != _headlights);
-
-        if (!_simDoorActive) {
-            _doorDriver = newDoorDriver;
-        }
-        _doorPassenger = newDoorPass;
-        _trunk = newTrunk;
-        _doorRearLeft = newDoorRL;
-        _doorRearRight = newDoorRR;
         _seatbeltWarning = newSeatbelt;
         _handbrake = newHandbrake;
         _headlights = newHeadlights;
 
-        if (doorChanged) {
-            sendDoorsAndSeatbelt();
-        }
         if (statusChanged) {
             sendVehicleStatus();
+        }
+    }
+    // Honda 0x405 / 0x324: Genuine Honda Doors Status Frame
+    else if ((identifier == 0x405 || identifier == 0x324) && length >= 4) {
+        if (_debugEnabled) {
+            Serial.printf("[CAN DOORS 0x%03X] D:", identifier);
+            for (uint8_t i = 0; i < length; i++) Serial.printf(" %02X", data[i]);
+            Serial.println();
+        }
+
+        if (!_simDoorActive) {
+            // Unpack real Honda door bits
+            bool newFL = (data[0] & 0x01) != 0 || (data[3] & 0x20) != 0;
+            bool newFR = (data[0] & 0x02) != 0 || (data[3] & 0x40) != 0;
+            bool newRL = (data[0] & 0x04) != 0 || (data[3] & 0x80) != 0;
+            bool newRR = (data[0] & 0x08) != 0 || (data[3] & 0x01) != 0;
+            bool newTrunk = (data[0] & 0x10) != 0;
+
+            bool doorChanged = (newFL != _doorDriver) || (newFR != _doorPassenger) ||
+                               (newRL != _doorRearLeft) || (newRR != _doorRearRight) ||
+                               (newTrunk != _trunk);
+
+            _doorDriver = newFL;
+            _doorPassenger = newFR;
+            _doorRearLeft = newRL;
+            _doorRearRight = newRR;
+            _trunk = newTrunk;
+
+            if (doorChanged) {
+                sendDoorsAndSeatbelt();
+            }
         }
     }
     // Honda 0x1A4: Automatic Transmission Gear Position (Reverse detection)
