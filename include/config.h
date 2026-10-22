@@ -59,7 +59,7 @@
 // 2. SWITCH TIMING & DEBOUNCE
 // ==============================================================================
 #define SW_DEBOUNCE_MS              25  // Debounce time for button press (ms)
-#define SW_LONG_PRESS_MS            500 // Hold threshold for continuous accel/decel ramp (ms)
+#define SW_LONG_PRESS_MS            350 // Hold threshold for continuous accel/decel ramp (ms, reduced from 500ms for faster response)
 
 // ==============================================================================
 // 3. CAN BUS CONFIGURATION (HONDA F-CAN)
@@ -82,7 +82,7 @@
 #define SPEED_MIN_ENGAGE_KMH        25.0f // Minimum speed allowed to engage cruise (25 km/h)
 #define SPEED_MAX_ENGAGE_KMH        140.0f// Maximum speed allowed to engage cruise (140 km/h)
 #define SPEED_TAP_STEP_KMH          1.0f  // Speed change per short tap on SET- or RES+
-#define SPEED_RAMP_RATE_KMH_S       2.0f  // Acceleration rate when holding RES+ (km/h per second)
+#define SPEED_RAMP_RATE_KMH_S       6.0f  // Acceleration rate when holding RES+/SET- (km/h per second, increased 3x for quick adjustment)
 
 // Maximum throttle authority granted to cruise PID (Safety ceiling)
 // 0.0f = 0% throttle, 1.0f = 100% throttle
