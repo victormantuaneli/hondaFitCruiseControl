@@ -190,6 +190,17 @@ void handleSerialDebugCommand(char c) {
         case '9':
             canboxEmulator.toggleSimDoor(c - '0');
             break;
+        case ',':
+        case '<':
+            canboxEmulator.toggleSimTurn(1);
+            break;
+        case '.':
+        case '>':
+            canboxEmulator.toggleSimTurn(2);
+            break;
+        case '/':
+            canboxEmulator.toggleSimTurn(3);
+            break;
         case 'y':
         case 'Y':
             canboxEmulator.toggleBaudrate();
@@ -211,6 +222,9 @@ void handleSerialDebugCommand(char c) {
             Serial.println(F("  5 : Alternar Porta-Malas"));
             Serial.println(F("  9 : ABRIR TODAS as Portas (Teste geral)"));
             Serial.println(F("  0 : Fechar TODAS as portas (Reset)"));
+            Serial.println(F("  , : Alternar Seta Esquerda (Simulada)"));
+            Serial.println(F("  . : Alternar Seta Direita (Simulada)"));
+            Serial.println(F("  / : Alternar Pisca-Alerta (Hazard)"));
             Serial.println(F("  x : Alternar Sniffer CAN do carro (OFF -> DETECTAR MUDANÇAS -> TODOS RAW)"));
             Serial.println(F("  m : Alternar chave Cruise Main"));
             Serial.println(F("  s : Pressionar SET/DECEL"));

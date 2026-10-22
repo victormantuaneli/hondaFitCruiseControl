@@ -88,11 +88,37 @@ void CanboxEmulator::toggleSimDoor(uint8_t doorIndex) {
             _doorRearRight = false;
             _trunk = false;
             _hood = false;
-            _simDoorActive = false;
-            Serial.println(F("\n>>> [CANBOX TEST] TODAS AS PORTAS FECHADAS (Reset) <<<"));
+            _simDoorActive = true; // Lock simulation in all closed state!
+            Serial.println(F("\n>>> [CANBOX TEST] TODAS AS PORTAS FECHADAS (Reset/Trava Simulada) <<<"));
             break;
     }
     sendDoorsAndSeatbelt();
+}
+
+void CanboxEmulator::toggleSimTurn(uint8_t turn) {
+    switch (turn) {
+        case 1:
+            _turnLeft = !_turnLeft;
+            _turnRight = false;
+            Serial.printf("\n>>> [CANBOX TEST] Seta Esquerda: %s <<<\n", _turnLeft ? "LIGADA (CMD 0x25)" : "DESLIGADA");
+            break;
+        case 2:
+            _turnRight = !_turnRight;
+            _turnLeft = false;
+            Serial.printf("\n>>> [CANBOX TEST] Seta Direita: %s <<<\n", _turnRight ? "LIGADA (CMD 0x25)" : "DESLIGADA");
+            break;
+        case 3:
+            _turnLeft = !_turnLeft;
+            _turnRight = _turnLeft;
+            Serial.printf("\n>>> [CANBOX TEST] Pisca-Alerta (Hazard): %s <<<\n", _turnLeft ? "LIGADO (CMD 0x25)" : "DESLIGADO");
+            break;
+        case 0:
+            _turnLeft = false;
+            _turnRight = false;
+            Serial.println(F("\n>>> [CANBOX TEST] Setas DESLIGADAS <<<"));
+            break;
+    }
+    sendVehicleStatus();
 }
 
 void CanboxEmulator::toggleBaudrate() {
@@ -295,6 +321,10 @@ void CanboxEmulator::parseHondaFrame(uint32_t identifier, const uint8_t* data, u
             }
         }
 
+        // Byte 0: Turn signals (SCM feedback on Honda Fit G2)
+        bool newTurnLeft = (data[0] & 0x20) != 0;
+        bool newTurnRight = (data[0] & 0x40) != 0;
+
         // Byte 2: Seatbelt and Handbrake
         // Bit 6 (0x40): Seatbelt unbuckled warning
         // Bit 0 (0x01): Parking / Handbrake lever pulled
@@ -305,20 +335,23 @@ void CanboxEmulator::parseHondaFrame(uint32_t identifier, const uint8_t* data, u
         bool newHeadlights = (data[1] & 0x04) != 0 || (data[1] & 0x10) != 0;
 
         bool statusChanged = (newHandbrake != _handbrake) || (newHeadlights != _headlights) ||
-                             (newSeatbelt != _seatbeltWarning);
+                             (newSeatbelt != _seatbeltWarning) ||
+                             (newTurnLeft != _turnLeft) || (newTurnRight != _turnRight);
 
         _seatbeltWarning = newSeatbelt;
         _handbrake = newHandbrake;
         _headlights = newHeadlights;
+        _turnLeft = newTurnLeft;
+        _turnRight = newTurnRight;
 
         if (statusChanged) {
             sendVehicleStatus();
         }
     }
-    // Honda 0x405 / 0x324: Genuine Honda Doors Status Frame
-    else if ((identifier == 0x405 || identifier == 0x324) && length >= 4) {
+    // Honda 0x405: Genuine Honda Doors Status Frame
+    else if (identifier == 0x405 && length >= 4) {
         if (_debugEnabled) {
-            Serial.printf("[CAN DOORS 0x%03X] D:", identifier);
+            Serial.printf("[CAN DOORS 0x405] D:");
             for (uint8_t i = 0; i < length; i++) Serial.printf(" %02X", data[i]);
             Serial.println();
         }
