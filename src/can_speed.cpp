@@ -1,4 +1,5 @@
 #include "can_speed.h"
+#include "canbox_emulator.h"
 #include "driver/twai.h"
 
 // Official Honda F-CAN Checksum calculation (Byte 7 lower nibble)
@@ -31,8 +32,13 @@ CanSpeedReader::CanSpeedReader()
       _has17c(false),
       _snifferMode(SnifferMode::OFF),
       _lastB0_164(0xFF),
-      _lastB4_17C(0xFF) {
+      _lastB4_17C(0xFF),
+      _canbox(nullptr) {
     memset(_latest17c, 0, sizeof(_latest17c));
+}
+
+void CanSpeedReader::setCanboxEmulator(CanboxEmulator *emulator) {
+    _canbox = emulator;
 }
 
 
@@ -135,6 +141,11 @@ void CanSpeedReader::update() {
 void CanSpeedReader::parseHondaFrame(uint32_t identifier, const uint8_t* data, uint8_t length) {
     _realCanReceived = true;
     _benchSimActive = false;
+
+    // Forward frame to CANBox emulator for body/cluster decoding (doors, seatbelt, handbrake)
+    if (_canbox) {
+        _canbox->parseHondaFrame(identifier, data, length);
+    }
 
     // Standard Honda 0x158: Engine RPM & Vehicle Speed
     if (identifier == CAN_HONDA_SPEED_ID && length >= 6) {

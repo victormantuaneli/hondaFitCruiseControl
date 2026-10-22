@@ -118,3 +118,12 @@
 #define PID_KD                      0.005f // Derivative gain
 #define PID_INTEGRAL_MAX            0.30f  // Anti-windup limit for integral term
 #define PID_SAMPLE_TIME_MS          50     // 20 Hz control loop
+
+// ==============================================================================
+// 7. CANBOX EMULATOR (UART2 FOR ANDROID MULTIMEDIA LE6321 - RAISE HONDA PROTOCOL)
+// ==============================================================================
+#define CANBOX_EMULATOR_ENABLED     true
+#define PIN_CANBOX_TX               17     // ESP32 TX2 -> Multimedia CAN-RX / RX
+#define PIN_CANBOX_RX               16     // ESP32 RX2 -> Multimedia CAN-TX / TX
+#define CANBOX_UART_BAUDRATE        38400  // Standard Raise (RZC) Honda protocol baudrate
+

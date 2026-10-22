@@ -6,6 +6,7 @@
 #include "safety_supervisor.h"
 #include "cruise_controller.h"
 #include "disengage_log.h"
+#include "canbox_emulator.h"
 
 // Hardware Singletons
 CanSpeedReader      canReader;
@@ -13,6 +14,7 @@ SteeringSwitchDecoder switchDecoder;
 Mcp4728Dac          dacOutput;
 SafetySupervisor    safetySupervisor;
 DisengageLog        disengageLog;
+CanboxEmulator      canboxEmulator;
 CruiseController    cruiseController(switchDecoder, canReader, dacOutput, safetySupervisor, disengageLog);
 
 // FreeRTOS Task Handles
@@ -37,6 +39,18 @@ void taskControlLoop(void *pvParameters) {
     for (;;) {
         // Run cruise control state machine and PID
         cruiseController.update();
+
+        // Feed CANBox emulator for Android Multimedia (LE6321)
+        bool cruiseActive = (cruiseController.getState() == CruiseState::ACTIVE || 
+                             cruiseController.getState() == CruiseState::OVERRIDE);
+        canboxEmulator.update(
+            canReader.getSpeedKmh(),
+            canReader.getEngineRpm(),
+            safetySupervisor.isBrakePressed(),
+            switchDecoder.isCruiseMainActive(),
+            cruiseActive,
+            cruiseController.getTargetSpeed()
+        );
 
         // Wait for next 50ms cycle
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
@@ -75,6 +89,11 @@ void setup() {
     // 6. Initialize Controller
     cruiseController.begin();
     Serial.println(F("[OK] Cruise controller initialized."));
+
+    // 7. Initialize CANBox Emulator for Multimedia LE6321 (Serial2)
+    canboxEmulator.begin();
+    canReader.setCanboxEmulator(&canboxEmulator);
+    Serial.println(F("[OK] CANBox emulator initialized on Serial2."));
 
     // 6. Launch FreeRTOS Tasks
     xTaskCreatePinnedToCore(
