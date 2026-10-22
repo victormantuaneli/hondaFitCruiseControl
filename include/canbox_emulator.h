@@ -22,8 +22,13 @@ public:
     bool isHandbrakeActive() const { return _handbrake; }
     bool isHeadlightsOn() const { return _headlights; }
 
+    // Live UART debug
+    void toggleDebug();
+    bool isDebugEnabled() const { return _debugEnabled; }
+
 private:
     bool _initialized;
+    bool _debugEnabled;
 
     // Body & Safety state (decoded from Honda CAN)
     bool _doorDriver;

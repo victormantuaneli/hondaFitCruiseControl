@@ -173,41 +173,21 @@ void handleSerialDebugCommand(char c) {
             canReader.setSimulatedSpeed(simSpeed, false);
             Serial.println(F("[DEBUG] Injected: CAN Timeout"));
             break;
+        case 'u':
+        case 'U':
+            canboxEmulator.toggleDebug();
+            break;
         case 'x':
         case 'X':
             canReader.toggleSnifferOutput();
-            break;
-        case 'l':
-        case 'L':
-            canReader.toggleManualLampTest();
-            break;
-        case 'i':
-        case 'I':
-            Serial.println(F("\n[I2C] Executando diagnóstico I2C..."));
-            dacOutput.scanBus();
-            {
-                uint8_t err = dacOutput.pingDevice();
-                if (err == 0) {
-                    Serial.println(F("[DAC] MCP4728 respondeu com ACK (Sucesso)!"));
-                } else {
-                    Serial.printf("[DAC] MCP4728 NÃO respondeu! Código de erro Wire: %d\n", err);
-                    Serial.println(F("       (2=NACK endereço, 3=NACK dados, 4/5=Barramento travado/sem pull-up)"));
-                }
-            }
-            break;
-        case 'd':
-        case 'D':
-            disengageLog.printHistory();
-            break;
-        case 'k':
-        case 'K':
-            disengageLog.clear();
             break;
         case '?':
         case 'h':
             Serial.println(F("\n=== BENCH DEBUG COMMANDS ==="));
             Serial.println(F("  d : Ver histórico dos últimos 10 desarmes (NVS)"));
             Serial.println(F("  k : Limpar histórico de desarmes da NVS"));
+            Serial.println(F("  u : Alternar Monitor CANBox Serial2 (TX2/RX2 pacotes p/ central)"));
+            Serial.println(F("  x : Alternar Sniffer CAN do carro (OFF -> FILTRADO -> TODOS RAW)"));
             Serial.println(F("  m : Alternar chave Cruise Main"));
             Serial.println(F("  s : Pressionar SET/DECEL"));
             Serial.println(F("  r : Pressionar RES/ACCEL"));
@@ -219,7 +199,6 @@ void handleSerialDebugCommand(char c) {
             Serial.println(F("  + : Velocidade +5 km/h (simulado)"));
             Serial.println(F("  - : Velocidade -5 km/h (simulado)"));
             Serial.println(F("  t : Simular Timeout de CAN"));
-            Serial.println(F("  x : Alternar Sniffer CAN (OFF -> FILTRADO -> TODOS RAW)"));
             Serial.println(F("============================\n"));
             break;
         default:

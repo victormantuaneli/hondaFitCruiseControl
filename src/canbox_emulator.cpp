@@ -2,6 +2,7 @@
 
 CanboxEmulator::CanboxEmulator()
     : _initialized(false),
+      _debugEnabled(false),
       _doorDriver(false),
       _doorPassenger(false),
       _doorRearLeft(false),
@@ -29,6 +30,12 @@ CanboxEmulator::CanboxEmulator()
       _lastDoorsSendMs(0),
       _lastStatusSendMs(0),
       _lastCruiseSendMs(0) {}
+
+void CanboxEmulator::toggleDebug() {
+    _debugEnabled = !_debugEnabled;
+    Serial.printf("\n[CANBOX] Monitor Serial2 (TX2/RX2): %s\n", 
+                  _debugEnabled ? "ATIVADO (Exibindo pacotes enviados e recebidos)" : "DESATIVADO");
+}
 
 void CanboxEmulator::begin() {
 #if CANBOX_EMULATOR_ENABLED
@@ -67,6 +74,20 @@ void CanboxEmulator::sendRaisePacket(uint8_t cmd, const uint8_t* payload, uint8_
     frame[3 + length] = (uint8_t)((sum ^ 0xFF) & 0xFF);
 
     Serial2.write(frame, 4 + length);
+
+    if (_debugEnabled) {
+        const char* cmdName = "INFO";
+        if (cmd == 0x24) cmdName = "PORTAS/CINTO";
+        else if (cmd == 0x25) cmdName = "STATUS/LUZES";
+        else if (cmd == 0x16) cmdName = "VEL/RPM";
+        else if (cmd == 0x32) cmdName = "CRUISE";
+
+        Serial.printf("[CANBOX TX] CMD 0x%02X (%s) ->", cmd, cmdName);
+        for (uint8_t i = 0; i < 4 + length; i++) {
+            Serial.printf(" %02X", frame[i]);
+        }
+        Serial.println();
+    }
 #endif
 }
 
@@ -237,6 +258,14 @@ void CanboxEmulator::update(float speedKmh, float rpm, bool brakePressed,
     // 4. Cruise Control Telemetry: Heartbeat every 250ms or instant push on state change
     if (_lastCruiseActive != _cruiseActive || (now - _lastCruiseSendMs >= 250)) {
         sendCruiseStatus();
+    }
+
+    // 5. Read incoming frames from Multimedia (RX2)
+    while (Serial2.available()) {
+        uint8_t rxByte = Serial2.read();
+        if (_debugEnabled) {
+            Serial.printf("[CANBOX RX <- CENTRAL] 0x%02X\n", rxByte);
+        }
     }
 #endif
 }
