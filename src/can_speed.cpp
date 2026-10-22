@@ -121,6 +121,27 @@ void CanSpeedReader::update() {
                         Serial.printf("\n>>> [CAN 0x17C] B4: 0x%02X | FREIO: %s | LUZ CRUISE: %s <<<\n",
                                       b4, brakeOn ? "PÉ NO FREIO (ON)" : "SOLTO (OFF)", lightOn ? "ACESO" : "APAGADO");
                     }
+                } else if (message.identifier != 0x158) {
+                    // Generic Change Detector for Body/Safety frames (detects doors, seatbelt, handbrake instantly!)
+                    static struct { uint32_t id; uint8_t d[8]; uint8_t len; } track[32];
+                    static uint8_t trackCount = 0;
+                    int idx = -1;
+                    for (int i = 0; i < trackCount; i++) {
+                        if (track[i].id == message.identifier) { idx = i; break; }
+                    }
+                    if (idx == -1 && trackCount < 32) {
+                        idx = trackCount++;
+                        track[idx].id = message.identifier;
+                        track[idx].len = message.data_length_code;
+                        memcpy(track[idx].d, message.data, message.data_length_code);
+                    } else if (idx != -1) {
+                        if (memcmp(track[idx].d, message.data, message.data_length_code) != 0) {
+                            memcpy(track[idx].d, message.data, message.data_length_code);
+                            Serial.printf("\n>>> [CAN MUDOU] ID: 0x%03X DLC: %d DATA:", message.identifier, message.data_length_code);
+                            for (uint8_t i = 0; i < message.data_length_code; i++) Serial.printf(" %02X", message.data[i]);
+                            Serial.println(" <<<");
+                        }
+                    }
                 }
             }
 

@@ -71,12 +71,23 @@ void CanboxEmulator::toggleSimDoor(uint8_t doorIndex) {
             _trunk = !_trunk;
             Serial.printf("\n>>> [CANBOX TEST] Porta-Malas: %s <<<\n", _trunk ? "ABERTO" : "FECHADO");
             break;
+        case 9:
+            _simDoorActive = true;
+            _doorDriver = true;
+            _doorPassenger = true;
+            _doorRearLeft = true;
+            _doorRearRight = true;
+            _trunk = true;
+            _hood = true;
+            Serial.println(F("\n>>> [CANBOX TEST] TODAS AS PORTAS ABERTAS (1,2,3,4,5,Capô) <<<"));
+            break;
         case 0:
             _doorDriver = false;
             _doorPassenger = false;
             _doorRearLeft = false;
             _doorRearRight = false;
             _trunk = false;
+            _hood = false;
             _simDoorActive = false;
             Serial.println(F("\n>>> [CANBOX TEST] TODAS AS PORTAS FECHADAS (Reset) <<<"));
             break;
