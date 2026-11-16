@@ -15,6 +15,8 @@ CruiseController::CruiseController(
     _targetSpeedKmh(0.0f),
     _lastSpeedKmh(0.0f),
     _currentThrottle(0.0f),
+    _isButtonAccelerating(false),
+    _filteredAccel(0.0f),
     _integralTerm(0.0f),
     _lastError(0.0f),
     _lastPidTime(0) {}
@@ -22,6 +24,9 @@ CruiseController::CruiseController(
 void CruiseController::begin() {
     _state = CruiseState::OFF;
     resetPid();
+    _isButtonAccelerating = false;
+    _filteredAccel = 0.0f;
+    _lastSpeedKmh = _can.getSpeedKmh();
     _dac.setIdle();
     _safety.setRelayEngaged(false);
     _can.setCruiseLamp(false);
@@ -31,10 +36,13 @@ void CruiseController::resetPid() {
     _integralTerm = 0.0f;
     _lastError = 0.0f;
     _currentThrottle = 0.0f;
+    _filteredAccel = 0.0f;
+    _isButtonAccelerating = false;
     _lastPidTime = millis();
 }
 
 void CruiseController::disengage(DisengageReason reason) {
+    _isButtonAccelerating = false;
     if (_state == CruiseState::ACTIVE || _state == CruiseState::OVERRIDE) {
         float pedalThr = _safety.readPhysicalPedalThrottle();
         float pedalVolts = _safety.getRawPedalVolts();
@@ -99,12 +107,23 @@ void CruiseController::update() {
             }
         }
 
-        // Execute PID at 50ms intervals
+        // Execute PID or Active Button Acceleration at 50ms intervals
         if (now - _lastPidTime >= PID_SAMPLE_TIME_MS) {
             if (_state == CruiseState::OVERRIDE) {
                 // When driver accelerates above setpoint, track error without winding up integral
                 // so there is no sudden throttle drop/surge when driver releases the gas!
                 _lastError = _targetSpeedKmh - currentSpeed;
+            } else if (_isButtonAccelerating) {
+                // Actively accelerate vehicle: progressively increase throttle like stepping on the pedal
+                if (_currentThrottle < CRUISE_BTN_ACCEL_MAX_THR) {
+                    _currentThrottle += CRUISE_BTN_ACCEL_SLEW_CYCLE;
+                    if (_currentThrottle > CRUISE_BTN_ACCEL_MAX_THR) {
+                        _currentThrottle = CRUISE_BTN_ACCEL_MAX_THR;
+                    }
+                }
+                // Target speed follows vehicle speed while actively accelerating
+                _targetSpeedKmh = currentSpeed;
+                _lastError = 0.0f;
             } else {
                 computePid(currentSpeed);
             }
@@ -206,7 +225,20 @@ void CruiseController::handleInputs() {
                 _targetSpeedKmh = min(SPEED_MAX_ENGAGE_KMH, _targetSpeedKmh + SPEED_TAP_STEP_KMH);
                 Serial.printf("[CRUISE] Target: %.1f km/h\n", _targetSpeedKmh);
             } else if (evt.event == ButtonEvent::LONG_PRESS_HOLD) {
-                _targetSpeedKmh = min(SPEED_MAX_ENGAGE_KMH, _targetSpeedKmh + (SPEED_RAMP_RATE_KMH_S * 0.05f));
+                // Holding RES/ACCEL: Actively accelerate the vehicle like stepping on the gas pedal!
+                if (!_isButtonAccelerating) {
+                    _isButtonAccelerating = true;
+                    Serial.println(F("[CRUISE] RES/ACCEL mantido: acelerando ativamente (pisada no pedal)..."));
+                }
+            } else if (evt.event == ButtonEvent::RELEASED) {
+                if (_isButtonAccelerating) {
+                    _isButtonAccelerating = false;
+                    _targetSpeedKmh = constrain(currentSpeed, SPEED_MIN_ENGAGE_KMH, SPEED_MAX_ENGAGE_KMH);
+                    _integralTerm = constrain(_currentThrottle, 0.05f, PID_INTEGRAL_MAX);
+                    _lastError = 0.0f;
+                    Serial.printf("\n[CRUISE] RES/ACCEL solto! Nova velocidade travada em %.1f km/h (Acelerador: %.1f%%)\n\n",
+                                  _targetSpeedKmh, _currentThrottle * 100.0f);
+                }
             }
         }
     }
@@ -214,32 +246,59 @@ void CruiseController::handleInputs() {
 
 void CruiseController::computePid(float currentSpeed) {
     float dt = (float)PID_SAMPLE_TIME_MS / 1000.0f; // 0.05 seconds
+    if (dt <= 0.001f) dt = 0.05f;
+
+    // 1. Vehicle Acceleration Measurement (km/h per second)
+    float accelKmhS = (currentSpeed - _lastSpeedKmh) / dt;
+    _filteredAccel = 0.65f * _filteredAccel + 0.35f * accelKmhS; // Low-pass filter for smooth damping
+
     float error = _targetSpeedKmh - currentSpeed;
 
-    // 1. Proportional term
-    float pTerm = PID_KP * error;
+    // 2. Predictive Lead-in (Speed projection to eliminate overshoot)
+    // When accelerating towards target, project speed ahead by PID_LEAD_TIME_S (1.2s).
+    // As projected speed approaches target, roll off proportional drive BEFORE crossing target!
+    float projectedSpeed = currentSpeed + (_filteredAccel * PID_LEAD_TIME_S);
+    float effectivePError = error;
+    if (error > 0.0f && _filteredAccel > 0.15f) {
+        effectivePError = _targetSpeedKmh - projectedSpeed;
+        if (effectivePError < 0.0f) effectivePError = 0.0f; // Gently glide into setpoint
+    }
 
-    // 2. Integral term with anti-windup clamping
-    _integralTerm += (PID_KI * error * dt);
-    _integralTerm = constrain(_integralTerm, -PID_INTEGRAL_MAX, PID_INTEGRAL_MAX);
+    float pTerm = PID_KP * effectivePError;
 
-    // 3. Derivative on error
-    float dTerm = PID_KD * (error - _lastError) / dt;
-    _lastError = error;
+    // 3. Conditional Integral with Anti-Windup Zone
+    // Only integrate when within +/- PID_INTEGRAL_ZONE_KMH (3.0 km/h) of target!
+    // When resuming from a lower speed (|error| > 3.0), do NOT wind up the integrator.
+    if (abs(error) <= PID_INTEGRAL_ZONE_KMH) {
+        _integralTerm += (PID_KI * error * dt);
+        _integralTerm = constrain(_integralTerm, -PID_INTEGRAL_MAX, PID_INTEGRAL_MAX);
+    } else {
+        // Outside regulation band: gently decay integral towards zero
+        _integralTerm *= 0.98f;
+    }
+
+    // 4. Derivative on Measurement (Vehicle Acceleration Damping)
+    // Directly counteracts vehicle acceleration near target to prevent overshoot
+    float dTerm = -PID_KD * _filteredAccel;
 
     // Base target throttle from PID
     float rawDemand = pTerm + _integralTerm + dTerm;
     if (rawDemand < 0.0f) rawDemand = 0.0f;
 
-    // 4. Slew Rate Limiter (prevents sudden pedal jumps)
+    // 5. Asymmetrical Slew Rate Limiter:
+    // Smooth upward ramp (passenger comfort), but FAST downward roll-off (eliminates overshoot)
     float throttleDelta = rawDemand - _currentThrottle;
-    throttleDelta = constrain(throttleDelta, -MAX_THROTTLE_SLEW_PER_CYCLE, MAX_THROTTLE_SLEW_PER_CYCLE);
+    if (throttleDelta > 0.0f) {
+        throttleDelta = min(throttleDelta, MAX_THROTTLE_SLEW_UP);
+    } else {
+        throttleDelta = max(throttleDelta, -MAX_THROTTLE_SLEW_DOWN);
+    }
     _currentThrottle += throttleDelta;
 
-    // 5. Final Safety Clamp for PID authority (capped at CRUISE_MAX_THROTTLE_LIMIT, e.g. 50%)
+    // 6. Safety Clamp for PID authority (capped at CRUISE_MAX_THROTTLE_LIMIT, e.g. 50%)
     _currentThrottle = constrain(_currentThrottle, 0.0f, CRUISE_MAX_THROTTLE_LIMIT);
 
-    // Note: Actual DAC write is managed in update() with effectiveThrottle = max(PID, driverPedal)
+    _lastError = error;
 }
 
 CruiseState CruiseController::getState() const {

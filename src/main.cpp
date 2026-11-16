@@ -6,7 +6,7 @@
 #include "safety_supervisor.h"
 #include "cruise_controller.h"
 #include "disengage_log.h"
-#include "canbox_emulator.h"
+#include "ota_manager.h"
 
 // Hardware Singletons
 CanSpeedReader      canReader;
@@ -14,8 +14,8 @@ SteeringSwitchDecoder switchDecoder;
 Mcp4728Dac          dacOutput;
 SafetySupervisor    safetySupervisor;
 DisengageLog        disengageLog;
-CanboxEmulator      canboxEmulator;
 CruiseController    cruiseController(switchDecoder, canReader, dacOutput, safetySupervisor, disengageLog);
+OtaManager          otaManager;
 
 // FreeRTOS Task Handles
 TaskHandle_t hTaskCan = NULL;
@@ -39,18 +39,6 @@ void taskControlLoop(void *pvParameters) {
     for (;;) {
         // Run cruise control state machine and PID
         cruiseController.update();
-
-        // Feed CANBox emulator for Android Multimedia (LE6321)
-        bool cruiseActive = (cruiseController.getState() == CruiseState::ACTIVE || 
-                             cruiseController.getState() == CruiseState::OVERRIDE);
-        canboxEmulator.update(
-            canReader.getSpeedKmh(),
-            canReader.getEngineRpm(),
-            safetySupervisor.isBrakePressed(),
-            switchDecoder.isCruiseMainActive(),
-            cruiseActive,
-            cruiseController.getTargetSpeed()
-        );
 
         // Wait for next 50ms cycle
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
@@ -90,12 +78,11 @@ void setup() {
     cruiseController.begin();
     Serial.println(F("[OK] Cruise controller initialized."));
 
-    // 7. Initialize CANBox Emulator for Multimedia LE6321 (Serial2)
-    canboxEmulator.begin();
-    canReader.setCanboxEmulator(&canboxEmulator);
-    Serial.println(F("[OK] CANBox emulator initialized on Serial2."));
+    // 7. Initialize OTA & Wi-Fi Management
+    otaManager.begin(&cruiseController, &canReader, &safetySupervisor);
+    Serial.println(F("[OK] OTA Manager initialized."));
 
-    // 6. Launch FreeRTOS Tasks
+    // 8. Launch FreeRTOS Tasks
     xTaskCreatePinnedToCore(
         taskCanRx,
         "TaskCAN",
@@ -122,6 +109,11 @@ void setup() {
 void handleSerialDebugCommand(char c) {
     static float simSpeed = 70.0f;
     switch (c) {
+        case 'w':
+        case 'W':
+            Serial.printf("[OTA] IP OTA: http://%s/ | AP: %s (senha: %s)\n",
+                          otaManager.getIpAddress().c_str(), OTA_AP_SSID, OTA_AP_PASSWORD);
+            break;
         case 'm':
         case 'M':
             canReader.toggleVirtualMainSwitch();
@@ -173,37 +165,22 @@ void handleSerialDebugCommand(char c) {
             canReader.setSimulatedSpeed(simSpeed, false);
             Serial.println(F("[DEBUG] Injected: CAN Timeout"));
             break;
-        case 'u':
-        case 'U':
-            canboxEmulator.toggleDebug();
+        case 'd':
+        case 'D':
+            disengageLog.printHistory();
             break;
-        case 'p':
-        case 'P':
-            canboxEmulator.toggleSimulatedDoor();
+        case 'k':
+        case 'K':
+            disengageLog.clear();
+            Serial.println(F("[LOG] Histórico de desarmes apagado da NVS!"));
             break;
-        case '0':
-        case '1':
-        case '2':
-        case '3':
-        case '4':
-        case '5':
-        case '9':
-            canboxEmulator.toggleSimDoor(c - '0');
+        case 'l':
+        case 'L':
+            canReader.toggleManualLampTest();
             break;
-        case ',':
-        case '<':
-            canboxEmulator.toggleSimTurn(1);
-            break;
-        case '.':
-        case '>':
-            canboxEmulator.toggleSimTurn(2);
-            break;
-        case '/':
-            canboxEmulator.toggleSimTurn(3);
-            break;
-        case 'y':
-        case 'Y':
-            canboxEmulator.toggleBaudrate();
+        case 'i':
+        case 'I':
+            Mcp4728Dac::scanBus();
             break;
         case 'x':
         case 'X':
@@ -211,33 +188,23 @@ void handleSerialDebugCommand(char c) {
             break;
         case '?':
         case 'h':
-            Serial.println(F("\n=== BENCH DEBUG COMMANDS ==="));
-            Serial.println(F("  d : Ver histórico dos últimos 10 desarmes (NVS)"));
-            Serial.println(F("  k : Limpar histórico de desarmes da NVS"));
-            Serial.println(F("  u : Alternar Monitor CANBox Serial2 (TX2/RX2 pacotes p/ central)"));
-            Serial.println(F("  1 : Alternar Porta Motorista (FL)"));
-            Serial.println(F("  2 : Alternar Porta Passageiro (FR)"));
-            Serial.println(F("  3 : Alternar Porta Traseira Esquerda (RL)"));
-            Serial.println(F("  4 : Alternar Porta Traseira Direita (RR)"));
-            Serial.println(F("  5 : Alternar Porta-Malas"));
-            Serial.println(F("  9 : ABRIR TODAS as Portas (Teste geral)"));
-            Serial.println(F("  0 : Fechar TODAS as portas (Reset)"));
-            Serial.println(F("  , : Alternar Seta Esquerda (Simulada)"));
-            Serial.println(F("  . : Alternar Seta Direita (Simulada)"));
-            Serial.println(F("  / : Alternar Pisca-Alerta (Hazard)"));
-            Serial.println(F("  x : Alternar Sniffer CAN do carro (OFF -> DETECTAR MUDANÇAS -> TODOS RAW)"));
-            Serial.println(F("  m : Alternar chave Cruise Main"));
-            Serial.println(F("  s : Pressionar SET/DECEL"));
-            Serial.println(F("  r : Pressionar RES/ACCEL"));
+        case 'H':
+            Serial.println(F("\n=== ESP32 HONDA FIT CRUISE CONTROL COMMANDS ==="));
+            Serial.println(F("  m : Alternar chave virtual Cruise Main"));
+            Serial.println(F("  s : Pressionar SET/DECEL (Tap) | 'S': Manter pressionado (Hold)"));
+            Serial.println(F("  r : Pressionar RES/ACCEL (Tap) | 'R': Manter pressionado (Hold)"));
             Serial.println(F("  c : Pressionar CANCEL"));
             Serial.println(F("  b : Teste de Freio (pulso 500ms)"));
             Serial.println(F("  o : Alternar Override do acelerador"));
-            Serial.println(F("  l : Teste Manual da Luz CRUISE no Painel (0x17C)"));
-            Serial.println(F("  i : Diagnóstico I2C / Testar MCP4728"));
-            Serial.println(F("  + : Velocidade +5 km/h (simulado)"));
-            Serial.println(F("  - : Velocidade -5 km/h (simulado)"));
+            Serial.println(F("  + : Velocidade +5 km/h (bancada/simulado)"));
+            Serial.println(F("  - : Velocidade -5 km/h (bancada/simulado)"));
             Serial.println(F("  t : Simular Timeout de CAN"));
-            Serial.println(F("============================\n"));
+            Serial.println(F("  l : Teste Manual da Luz CRUISE no Painel (0x17C)"));
+            Serial.println(F("  x : Alternar Sniffer CAN do carro (OFF -> DETECTAR MUDANÇAS -> TODOS RAW)"));
+            Serial.println(F("  d : Ver histórico dos últimos 10 desarmes (NVS)"));
+            Serial.println(F("  k : Limpar histórico de desarmes da NVS"));
+            Serial.println(F("  i : Escanear barramento I2C (MCP4728)"));
+            Serial.println(F("================================================\n"));
             break;
         default:
             break;
@@ -245,6 +212,9 @@ void handleSerialDebugCommand(char c) {
 }
 
 void loop() {
+    // Process Over-the-Air (OTA) updates & Web requests
+    otaManager.update();
+
     // Process interactive debug commands from USB Serial
     while (Serial.available()) {
         char c = (char)Serial.read();
@@ -260,23 +230,21 @@ void loop() {
     if (now - lastTelemetry >= 200) {
         lastTelemetry = now;
 
-        if (!canboxEmulator.isDebugEnabled()) {
-            Serial.printf(
-                "\r\033[KState: %-7s | Spd: %4.1f/%-4.1f km/h | Thr:%4.1f%% | Ped:%4.1f%%(%.2fV) | APP: %.2f/%.2fV | DAC:%-2s | CAN:%-3s | Brk:%-3s | Lamp:%-3s",
-                cruiseController.getStateString(),
-                canReader.getSpeedKmh(),
-                cruiseController.getTargetSpeed(),
-                cruiseController.getCurrentThrottle() * 100.0f,
-                safetySupervisor.readPhysicalPedalThrottle() * 100.0f,
-                safetySupervisor.getRawPedalVolts(),
-                dacOutput.getVoutA(),
-                dacOutput.getVoutB(),
-                dacOutput.isDeviceFound() ? "OK" : "ERR",
-                canReader.isSpeedValid() ? "OK" : "ERR",
-                safetySupervisor.isBrakePressed() ? "ON" : "OFF",
-                canReader.isCruiseLampOn() ? "ON" : "OFF"
-            );
-        }
+        Serial.printf(
+            "\r\033[KState: %-7s | Spd: %4.1f/%-4.1f km/h | Thr:%4.1f%% | Ped:%4.1f%%(%.2fV) | APP: %.2f/%.2fV | DAC:%-2s | CAN:%-3s | Brk:%-3s | Lamp:%-3s",
+            cruiseController.getStateString(),
+            canReader.getSpeedKmh(),
+            cruiseController.getTargetSpeed(),
+            cruiseController.getCurrentThrottle() * 100.0f,
+            safetySupervisor.readPhysicalPedalThrottle() * 100.0f,
+            safetySupervisor.getRawPedalVolts(),
+            dacOutput.getVoutA(),
+            dacOutput.getVoutB(),
+            dacOutput.isDeviceFound() ? "OK" : "ERR",
+            canReader.isSpeedValid() ? "OK" : "ERR",
+            safetySupervisor.isBrakePressed() ? "ON" : "OFF",
+            canReader.isCruiseLampOn() ? "ON" : "OFF"
+        );
     }
 
     delay(20);

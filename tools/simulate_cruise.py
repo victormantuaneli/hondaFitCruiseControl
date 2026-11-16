@@ -28,19 +28,25 @@ class VehicleSim:
         self.road_grade_pct = 0.0  # Incline %
 
         # PID gains (matching config.h)
-        self.kp = 0.045
-        self.ki = 0.012
-        self.kd = 0.005
+        self.kp = 0.040
+        self.ki = 0.010
+        self.kd = 0.015
         self.integral = 0.0
         self.last_error = 0.0
-        self.max_slew = 0.02  # Max 2% per 50ms cycle
+        self.last_speed = 0.0
+        self.filtered_accel = 0.0
+        self.max_slew_up = 0.015
+        self.max_slew_down = 0.040
         self.max_throttle_limit = 0.50  # 50% safety ceiling
+        self.integral_zone = 3.0
+        self.lead_time = 1.2
 
         # Safety & inputs
         self.brake_pressed = False
         self.driver_pedal_override = 0.0  # Driver pressing physical gas pedal
         self.relay_engaged = False
         self.can_timeout = False
+        self.is_button_accelerating = False
 
     def update_physics(self, dt):
         """Simulate realistic vehicle acceleration, aero drag, and rolling friction."""
@@ -79,24 +85,53 @@ class VehicleSim:
         self.engine_rpm = max(750.0, self.current_speed * 35.0)  # Approx gear ratio
 
     def update_cruise_pid(self, dt):
-        """Execute the PID speed regulator loop."""
+        """Execute the predictive PID speed regulator loop."""
         if self.state != "ACTIVE":
             self.throttle = 0.0
             return
 
+        if self.is_button_accelerating:
+            # Active RES/ACCEL button acceleration (pisada no pedal)
+            if self.throttle < 0.38:
+                self.throttle = min(0.38, self.throttle + 0.008)
+            self.target_speed = self.current_speed
+            self.last_error = 0.0
+            return
+
+        # Acceleration calculation & filtering
+        accel = (self.current_speed - self.last_speed) / dt if dt > 0.0 else 0.0
+        self.filtered_accel = 0.65 * self.filtered_accel + 0.35 * accel
+        self.last_speed = self.current_speed
+
         error = self.target_speed - self.current_speed
 
-        p_term = self.kp * error
-        self.integral += self.ki * error * dt
-        self.integral = max(-0.30, min(0.30, self.integral))  # Anti-windup
-        d_term = self.kd * (error - self.last_error) / dt
+        # Predictive lead-in projection (reduces drive early to prevent overshoot)
+        proj_speed = self.current_speed + (self.filtered_accel * self.lead_time)
+        effective_p_error = error
+        if error > 0.0 and self.filtered_accel > 0.15:
+            effective_p_error = max(0.0, self.target_speed - proj_speed)
+
+        p_term = self.kp * effective_p_error
+
+        # Conditional integration zone
+        if abs(error) <= self.integral_zone:
+            self.integral += self.ki * error * dt
+            self.integral = max(-0.25, min(0.25, self.integral))
+        else:
+            self.integral *= 0.98
+
+        # Acceleration damping term
+        d_term = -self.kd * self.filtered_accel
         self.last_error = error
 
         raw_demand = max(0.0, p_term + self.integral + d_term)
 
-        # Slew rate limiter
+        # Asymmetrical Slew rate limiter
         delta = raw_demand - self.throttle
-        delta = max(-self.max_slew, min(self.max_slew, delta))
+        if delta > 0:
+            delta = min(self.max_slew_up, delta)
+        else:
+            delta = max(-self.max_slew_down, delta)
         self.throttle += delta
 
         # Safety clamp
@@ -138,6 +173,7 @@ class VehicleSim:
         self.throttle = 0.0
         self.integral = 0.0
         self.last_error = 0.0
+        self.is_button_accelerating = False
 
     def press_set(self):
         if self.state == "STANDBY":
@@ -159,6 +195,17 @@ class VehicleSim:
                 self.last_error = 0.0
         elif self.state == "ACTIVE":
             self.target_speed = min(140.0, self.target_speed + 1.0)
+
+    def hold_res(self):
+        if self.state == "ACTIVE":
+            self.is_button_accelerating = True
+
+    def release_res(self):
+        if self.state == "ACTIVE" and self.is_button_accelerating:
+            self.is_button_accelerating = False
+            self.target_speed = min(140.0, max(40.0, self.current_speed))
+            self.integral = min(0.25, max(0.05, self.throttle))
+            self.last_error = 0.0
 
     def press_cancel(self):
         if self.state in ["ACTIVE", "OVERRIDE"]:

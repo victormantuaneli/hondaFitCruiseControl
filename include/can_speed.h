@@ -35,9 +35,6 @@ public:
     void setSimulatedSpeed(float speedKmh, bool valid = true);
     void toggleVirtualMainSwitch();
 
-    // Optional CANBox emulator hook
-    void setCanboxEmulator(class CanboxEmulator *emulator);
-
     enum class SnifferMode {
         OFF = 0,
         FILTERED,   // Shows only relevant cruise/steering/speed IDs (0x158, 0x164, 0x17C) on change
@@ -67,8 +64,6 @@ private:
     // Last seen state for filtered change detection
     uint8_t _lastB0_164;
     uint8_t _lastB4_17C;
-    
-    class CanboxEmulator *_canbox;
 
     void parseHondaFrame(uint32_t identifier, const uint8_t* data, uint8_t length);
 };

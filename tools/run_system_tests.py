@@ -13,7 +13,7 @@ def run_all_tests():
     print("=" * 75)
 
     passed_count = 0
-    total_tests = 11
+    total_tests = 12
 
     def assert_test(condition, test_name, detail=""):
         nonlocal passed_count
@@ -169,6 +169,33 @@ def run_all_tests():
         sim.state == "STANDBY" and not sim.relay_engaged and sim.throttle == 0.0,
         "CAN bus speed loss (>250ms) triggers immediate watchdog disengagement",
         f"State={sim.state}, Relay={sim.relay_engaged}, Throttle={sim.throttle*100:.1f}%"
+    )
+
+    # --------------------------------------------------------------------------
+    # Test 12: RES/ACCEL Active Throttle Depression & Speed Lock on Release
+    # --------------------------------------------------------------------------
+    sim.can_timeout = False
+    sim.current_speed = 70.0
+    sim.press_set()
+    sim.step(0.05)
+    assert sim.state == "ACTIVE"
+
+    # Driver holds RES/ACCEL: throttle actively ramps up like stepping on the pedal
+    sim.hold_res()
+    initial_thr = sim.throttle
+    for _ in range(30): # 1.5 seconds of holding ACCEL
+        sim.step(0.05)
+    accelerated_speed = sim.current_speed
+    accel_thr = sim.throttle
+
+    # Driver releases RES/ACCEL: new speed must be locked in as target
+    sim.release_res()
+    sim.step(0.05)
+
+    assert_test(
+        accel_thr > initial_thr and accelerated_speed > 70.0 and abs(sim.target_speed - accelerated_speed) < 0.5,
+        "RES/ACCEL hold actively accelerates vehicle (pedal depression) and locks new speed upon release",
+        f"Initial Thr={initial_thr*100:.1f}% -> Accel Thr={accel_thr*100:.1f}%, Final Target Locked={sim.target_speed:.1f} km/h (was 70.0)"
     )
 
     print("=" * 75)

@@ -1,5 +1,4 @@
 #include "can_speed.h"
-#include "canbox_emulator.h"
 #include "driver/twai.h"
 
 // Official Honda F-CAN Checksum calculation (Byte 7 lower nibble)
@@ -18,8 +17,8 @@ static uint8_t calculateHondaChecksum(uint32_t id, const uint8_t* data, uint8_t 
 }
 
 CanSpeedReader::CanSpeedReader() 
-    : _speedKmh(BENCH_SIM_MODE ? 70.0f : 0.0f),
-      _engineRpm(BENCH_SIM_MODE ? 2200.0f : 0.0f),
+    : _speedKmh(0.0f),
+      _engineRpm(0.0f),
       _lastRxTimeMs(BENCH_SIM_MODE ? millis() : 0),
       _initialized(false),
       _benchSimActive(BENCH_SIM_MODE),
@@ -32,15 +31,9 @@ CanSpeedReader::CanSpeedReader()
       _has17c(false),
       _snifferMode(SnifferMode::OFF),
       _lastB0_164(0xFF),
-      _lastB4_17C(0xFF),
-      _canbox(nullptr) {
+      _lastB4_17C(0xFF) {
     memset(_latest17c, 0, sizeof(_latest17c));
 }
-
-void CanSpeedReader::setCanboxEmulator(CanboxEmulator *emulator) {
-    _canbox = emulator;
-}
-
 
 bool CanSpeedReader::begin() {
     twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(
@@ -122,7 +115,7 @@ void CanSpeedReader::update() {
                                       b4, brakeOn ? "PÉ NO FREIO (ON)" : "SOLTO (OFF)", lightOn ? "ACESO" : "APAGADO");
                     }
                 } else if (message.identifier != 0x158) {
-                    // Generic Change Detector for Body/Safety frames (detects doors, seatbelt, handbrake instantly!)
+                    // Smart Change Detector: ignores Honda rolling counter/checksum in last byte!
                     static struct { uint32_t id; uint8_t d[8]; uint8_t len; } track[32];
                     static uint8_t trackCount = 0;
                     int idx = -1;
@@ -135,9 +128,11 @@ void CanSpeedReader::update() {
                         track[idx].len = message.data_length_code;
                         memcpy(track[idx].d, message.data, message.data_length_code);
                     } else if (idx != -1) {
-                        if (memcmp(track[idx].d, message.data, message.data_length_code) != 0) {
+                        // Compare all bytes EXCEPT the last byte (rolling counter/checksum on Honda)
+                        uint8_t cmpLen = message.data_length_code > 1 ? (message.data_length_code - 1) : message.data_length_code;
+                        if (memcmp(track[idx].d, message.data, cmpLen) != 0) {
                             memcpy(track[idx].d, message.data, message.data_length_code);
-                            Serial.printf("\n>>> [CAN MUDOU] ID: 0x%03X DLC: %d DATA:", message.identifier, message.data_length_code);
+                            Serial.printf("\n>>> [CAN MUDOU!] ID: 0x%03X DLC: %d DATA:", message.identifier, message.data_length_code);
                             for (uint8_t i = 0; i < message.data_length_code; i++) Serial.printf(" %02X", message.data[i]);
                             Serial.println(" <<<");
                         }
@@ -162,11 +157,6 @@ void CanSpeedReader::update() {
 void CanSpeedReader::parseHondaFrame(uint32_t identifier, const uint8_t* data, uint8_t length) {
     _realCanReceived = true;
     _benchSimActive = false;
-
-    // Forward frame to CANBox emulator for body/cluster decoding (doors, seatbelt, handbrake)
-    if (_canbox) {
-        _canbox->parseHondaFrame(identifier, data, length);
-    }
 
     // Standard Honda 0x158: Engine RPM & Vehicle Speed
     if (identifier == CAN_HONDA_SPEED_ID && length >= 6) {

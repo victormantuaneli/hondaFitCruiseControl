@@ -35,6 +35,7 @@ public:
     float getTargetSpeed() const;
     float getCurrentThrottle() const;
     const char* getStateString() const;
+    bool isButtonAccelerating() const { return _isButtonAccelerating; }
 
 private:
     SteeringSwitchDecoder &_switches;
@@ -47,6 +48,8 @@ private:
     float _targetSpeedKmh;
     float _lastSpeedKmh;
     float _currentThrottle;
+    bool _isButtonAccelerating;
+    float _filteredAccel;
     
     // PID state
     float _integralTerm;

@@ -88,8 +88,14 @@
 // 0.0f = 0% throttle, 1.0f = 100% throttle
 #define CRUISE_MAX_THROTTLE_LIMIT   0.50f // Max 50% throttle authority to prevent runaway
 
-// Rate limiter: Max throttle change per 50ms control loop cycle (prevents jerky response)
-#define MAX_THROTTLE_SLEW_PER_CYCLE 0.02f // 2% change per 50ms cycle (~40%/sec max slew)
+// Rate limiter: Asymmetric throttle slew (smooth ramp-up, brisk roll-off to prevent overshoot)
+#define MAX_THROTTLE_SLEW_UP        0.015f // Max +1.5% throttle per 50ms cycle (~30%/s max ramp-up)
+#define MAX_THROTTLE_SLEW_DOWN      0.040f // Max -4.0% throttle per 50ms cycle (~80%/s rapid roll-off near target)
+#define MAX_THROTTLE_SLEW_PER_CYCLE 0.02f  // Fallback default
+
+// Active RES/ACCEL Button Acceleration (Simulates physical gas pedal depression)
+#define CRUISE_BTN_ACCEL_SLEW_CYCLE 0.008f // Progressive pedal depression per 50ms cycle (~16%/sec)
+#define CRUISE_BTN_ACCEL_MAX_THR    0.38f  // Target acceleration throttle authority (equivalent to spirited pass)
 
 // ==============================================================================
 // 5. MCP4728 & ACCELERATOR PEDAL (APP) VOLTAGE MAPPING
@@ -111,19 +117,30 @@
 #define DAC_INVERT_CHANNELS_A_B     true
 
 // ==============================================================================
-// 6. PID TUNING PARAMETERS
+// 6. PID TUNING & SPEED REGULATION
 // ==============================================================================
-#define PID_KP                      0.045f // Proportional gain
-#define PID_KI                      0.012f // Integral gain
-#define PID_KD                      0.005f // Derivative gain
-#define PID_INTEGRAL_MAX            0.30f  // Anti-windup limit for integral term
+#define PID_KP                      0.040f // Proportional gain
+#define PID_KI                      0.010f // Integral gain
+#define PID_KD                      0.015f // Derivative / acceleration damping gain
+#define PID_INTEGRAL_MAX            0.25f  // Anti-windup limit for integral term
 #define PID_SAMPLE_TIME_MS          50     // 20 Hz control loop
 
+// Predictive Lead-in & Zone Parameters (Eliminates Overshoot)
+#define PID_INTEGRAL_ZONE_KMH       3.0f   // Only integrate when within +/- 3 km/h of target
+#define PID_LEAD_TIME_S             1.2f   // Lead time projection (seconds): anticipates arrival
+
 // ==============================================================================
-// 7. CANBOX EMULATOR (UART2 FOR ANDROID MULTIMEDIA LE6321 - RAISE HONDA PROTOCOL)
+// 7. OTA (OVER-THE-AIR) UPDATE & WI-FI CONFIGURATION
 // ==============================================================================
-#define CANBOX_EMULATOR_ENABLED     true
-#define PIN_CANBOX_TX               17     // ESP32 TX2 -> Multimedia CAN-RX / RX
-#define PIN_CANBOX_RX               16     // ESP32 RX2 -> Multimedia CAN-TX / TX
-#define CANBOX_UART_BAUDRATE        38400  // Standard Raise (RZC) Honda protocol baudrate
+#define OTA_AP_SSID                 "HondaFit-Cruise-OTA"
+#define OTA_AP_PASSWORD             "cruisecontrol"  // Minimum 8 characters for WPA2
+#define OTA_HOSTNAME                "esp32-cruise"
+#define OTA_PASSWORD                "cruise123"      // ArduinoOTA authentication password
+#define OTA_PORT                    3232
+#define OTA_WEB_PORT                80
+
+// Optional home Wi-Fi station mode (ESP32 tries connecting for 3s, then uses AP)
+#define OTA_STA_SSID                ""               // e.g. "MyHomeWiFi"
+#define OTA_STA_PASSWORD            ""               // e.g. "MyHomePass"
+
 
